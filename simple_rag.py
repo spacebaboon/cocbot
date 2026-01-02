@@ -8,6 +8,7 @@ This script demonstrates the core RAG pipeline:
 """
 
 import os
+import shutil
 import argparse
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -19,7 +20,11 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
 # Configuration
-PDF_PATH = "pdf_files/investigator_handbook.pdf"
+PDF_PATHS = [
+    "pdf_files/investigator_handbook.pdf",
+    "pdf_files/keepers_rulebook.pdf",
+    # Add more PDFs here as needed
+]
 OLLAMA_MODEL = "mistral:7b-instruct"  # Change to whatever you have running
 PERSIST_DIRECTORY = "./chroma_db"
 
@@ -42,11 +47,23 @@ def setup_rag_system(skip_processing=False):
         )
         print(f"   ✅ Loaded vector database from {PERSIST_DIRECTORY}\n")
     else:
-        print("📄 Step 1: Loading PDF...")
-        # Load the PDF
-        loader = PyPDFLoader(PDF_PATH)
-        documents = loader.load()
-        print(f"   Loaded {len(documents)} pages")
+        # Clear existing database if it exists
+        if os.path.exists(PERSIST_DIRECTORY):
+            print(f"🗑️  Clearing existing vector database at {PERSIST_DIRECTORY}...")
+            shutil.rmtree(PERSIST_DIRECTORY)
+            print("   ✅ Cleared\n")
+
+        print("📄 Step 1: Loading PDFs...")
+        # Load all PDFs and combine documents
+        all_documents = []
+        for pdf_path in PDF_PATHS:
+            print(f"   Loading {pdf_path}...")
+            loader = PyPDFLoader(pdf_path)
+            documents = loader.load()
+            all_documents.extend(documents)
+            print(f"   Loaded {len(documents)} pages from {pdf_path}")
+
+        print(f"   Total: {len(all_documents)} pages from {len(PDF_PATHS)} PDF(s)")
 
         print("\n✂️  Step 2: Splitting into chunks...")
         # Split documents into chunks
@@ -57,7 +74,7 @@ def setup_rag_system(skip_processing=False):
             chunk_overlap=50,
             length_function=len,
         )
-        chunks = text_splitter.split_documents(documents)
+        chunks = text_splitter.split_documents(all_documents)
         print(f"   Created {len(chunks)} chunks")
 
         # Let's see what a chunk looks like
@@ -190,11 +207,15 @@ def main():
         print(f"   You must run the script without --skip-processing first to create the database")
         return
 
-    # Check if PDF exists (only if we're not skipping processing)
-    if not args.skip_processing and not os.path.exists(PDF_PATH):
-        print(f"❌ Error: {PDF_PATH} not found!")
-        print(f"   Please place your CoC PDF in the project directory")
-        return
+    # Check if PDFs exist (only if we're not skipping processing)
+    if not args.skip_processing:
+        missing_pdfs = [pdf for pdf in PDF_PATHS if not os.path.exists(pdf)]
+        if missing_pdfs:
+            print(f"❌ Error: The following PDF(s) not found:")
+            for pdf in missing_pdfs:
+                print(f"   - {pdf}")
+            print(f"   Please place your PDF files in the correct location")
+            return
 
     # Check if Ollama is running
     try:
