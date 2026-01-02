@@ -95,8 +95,8 @@ def setup_rag_system(skip_processing=False):
         # chunk_size: how many characters per chunk
         # chunk_overlap: overlap between chunks (helps maintain context)
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,  # Small chunks for testing
-            chunk_overlap=50,
+            chunk_size=1000,  # Larger chunks for more context
+            chunk_overlap=100,
             length_function=len,
         )
         chunks = text_splitter.split_documents(all_documents)
@@ -142,8 +142,11 @@ Context may come from different types of sources:
 - ADVENTURE sources contain scenarios, plots, NPCs, and story content
 
 When answering:
-- For rules questions, prioritize information from RULES sources
-- For story/scenario questions, use ADVENTURE sources
+- Provide detailed, comprehensive answers using all relevant information from the context
+- For rules questions, prioritize information from RULES sources and explain mechanics thoroughly with examples when available
+- For story/scenario questions, use ADVENTURE sources and provide complete details about NPCs, locations, plot points, and encounters
+- Include specific page references, stat blocks, or other concrete details from the context
+- If multiple sources provide relevant information, synthesize them into a complete answer
 - If you don't know the answer based on the context, say so - don't make up information
 
 Context: {context}
@@ -154,7 +157,7 @@ Answer:""")
 
     # Create retriever
     retriever = vectorstore.as_retriever(
-        search_kwargs={"k": 3}  # Retrieve top 3 most relevant chunks
+        search_kwargs={"k": 5}  # Retrieve top 5 most relevant chunks
     )
 
     # Helper function to format documents with metadata
