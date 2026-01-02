@@ -149,8 +149,8 @@ cython_debug/
 # PDF files directory
 pdf_files/
 
-# Vector database
-chroma_db/
+# Vector databases (all game systems)
+chroma_db*/
 
 # PDF files in root
 *.pdf
