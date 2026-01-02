@@ -20,10 +20,24 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
 # Configuration
-PDF_PATHS = [
-    "pdf_files/investigator_handbook.pdf",
-    "pdf_files/keepers_rulebook.pdf",
+PDF_SOURCES = [
+    {
+        "path": "pdf_files/investigator_handbook.pdf",
+        "role": "rules",
+        "description": "Call of Cthulhu Investigator Handbook - Core rules for character creation and gameplay"
+    },
+    {
+        "path": "pdf_files/keepers_rulebook.pdf",
+        "role": "rules",
+        "description": "Call of Cthulhu Keeper's Rulebook - Game master rules and guidance"
+    },
     # Add more PDFs here as needed
+    # Example adventure:
+    # {
+    #     "path": "pdf_files/the_haunting.pdf",
+    #     "role": "adventure",
+    #     "description": "The Haunting - Introductory adventure scenario"
+    # },
 ]
 OLLAMA_MODEL = "mistral:7b-instruct"  # Change to whatever you have running
 PERSIST_DIRECTORY = "./chroma_db"
@@ -56,14 +70,25 @@ def setup_rag_system(skip_processing=False):
         print("📄 Step 1: Loading PDFs...")
         # Load all PDFs and combine documents
         all_documents = []
-        for pdf_path in PDF_PATHS:
-            print(f"   Loading {pdf_path}...")
+        for source in PDF_SOURCES:
+            pdf_path = source["path"]
+            role = source["role"]
+            description = source["description"]
+
+            print(f"   Loading {pdf_path} ({role})...")
             loader = PyPDFLoader(pdf_path)
             documents = loader.load()
-            all_documents.extend(documents)
-            print(f"   Loaded {len(documents)} pages from {pdf_path}")
 
-        print(f"   Total: {len(all_documents)} pages from {len(PDF_PATHS)} PDF(s)")
+            # Add metadata to each document
+            for doc in documents:
+                doc.metadata["source_role"] = role
+                doc.metadata["source_description"] = description
+                doc.metadata["source_path"] = pdf_path
+
+            all_documents.extend(documents)
+            print(f"   Loaded {len(documents)} pages from {description}")
+
+        print(f"   Total: {len(all_documents)} pages from {len(PDF_SOURCES)} PDF(s)")
 
         print("\n✂️  Step 2: Splitting into chunks...")
         # Split documents into chunks
@@ -109,24 +134,38 @@ def setup_rag_system(skip_processing=False):
     print("\n🔗 Creating RAG chain...")
     # Create a custom prompt template
     # This tells the LLM how to use the retrieved context
-    prompt = ChatPromptTemplate.from_template("""You are a helpful assistant for Call of Cthulhu tabletop RPG.
-Use the following context from the rulebook to answer the question.
-If you don't know the answer based on the context, say so - don't make up rules.
+    prompt = ChatPromptTemplate.from_template("""You are a helpful assistant for Call of Cthulhu tabletop RPG game masters.
+Use the following context to answer the question. Each piece of context includes metadata about its source.
+
+Context may come from different types of sources:
+- RULES sources contain game mechanics, character creation, skill checks, and system rules
+- ADVENTURE sources contain scenarios, plots, NPCs, and story content
+
+When answering:
+- For rules questions, prioritize information from RULES sources
+- For story/scenario questions, use ADVENTURE sources
+- If you don't know the answer based on the context, say so - don't make up information
 
 Context: {context}
 
 Question: {question}
 
 Answer:""")
-    
+
     # Create retriever
     retriever = vectorstore.as_retriever(
         search_kwargs={"k": 3}  # Retrieve top 3 most relevant chunks
     )
-    
-    # Helper function to format documents
+
+    # Helper function to format documents with metadata
     def format_docs(docs):
-        return "\n\n".join(doc.page_content for doc in docs)
+        formatted = []
+        for doc in docs:
+            role = doc.metadata.get('source_role', 'unknown').upper()
+            description = doc.metadata.get('source_description', 'Unknown source')
+            page = doc.metadata.get('page', 'unknown')
+            formatted.append(f"[{role} - {description} (Page {page})]\n{doc.page_content}")
+        return "\n\n".join(formatted)
     
     # Create the RAG chain using LCEL (LangChain Expression Language)
     rag_chain = (
@@ -152,7 +191,10 @@ def query_rag(rag_chain, retriever, question):
     print("-"*70)
     docs = retriever.invoke(prefixed_question)
     for i, doc in enumerate(docs, 1):
-        print(f"\nChunk {i} (Page {doc.metadata.get('page', 'unknown')}):")
+        role = doc.metadata.get('source_role', 'unknown').upper()
+        description = doc.metadata.get('source_description', 'Unknown source')
+        page = doc.metadata.get('page', 'unknown')
+        print(f"\nChunk {i} [{role}] - {description} (Page {page}):")
         content = doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content
         print(content)
     
@@ -209,11 +251,11 @@ def main():
 
     # Check if PDFs exist (only if we're not skipping processing)
     if not args.skip_processing:
-        missing_pdfs = [pdf for pdf in PDF_PATHS if not os.path.exists(pdf)]
+        missing_pdfs = [source for source in PDF_SOURCES if not os.path.exists(source["path"])]
         if missing_pdfs:
             print(f"❌ Error: The following PDF(s) not found:")
-            for pdf in missing_pdfs:
-                print(f"   - {pdf}")
+            for source in missing_pdfs:
+                print(f"   - {source['path']} ({source['description']})")
             print(f"   Please place your PDF files in the correct location")
             return
 
@@ -223,7 +265,7 @@ def main():
         response = requests.get("http://localhost:11434/api/tags", timeout=5)
         if response.status_code != 200:
             raise Exception("Ollama not responding")
-    except Exception as e:
+    except Exception:
         print(f"❌ Error: Cannot connect to Ollama!")
         print(f"   Make sure Ollama is running on Windows")
         print(f"   Test with: curl http://localhost:11434/api/tags")
