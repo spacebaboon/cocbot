@@ -143,6 +143,9 @@ cython_debug/
 *~
 .DS_Store
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # PDF files directory
 pdf_files/
 
