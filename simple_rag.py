@@ -31,15 +31,34 @@ PDF_SOURCES = [
         "role": "rules",
         "description": "Call of Cthulhu Keeper's Rulebook - Game master rules and guidance"
     },
-    # Add more PDFs here as needed
-    # Example adventure:
-    # {
-    #     "path": "pdf_files/the_haunting.pdf",
-    #     "role": "adventure",
-    #     "description": "The Haunting - Introductory adventure scenario"
-    # },
+    {
+        "path": "pdf_files/HOTOO_1.pdf",
+        "role": "adventure",
+        "description": "Horror on the Orient Express - Book 1: Campaign Book"
+    },
+    {
+        "path": "pdf_files/HOTOO_2.pdf",
+        "role": "adventure",
+        "description": "Horror on the Orient Express - Book 2: Through the Alps"
+    },
+    {
+        "path": "pdf_files/HOTOO_3.pdf",
+        "role": "adventure",
+        "description": "Horror on the Orient Express - Book 3: Italy and Beyond"
+    },
+    {
+        "path": "pdf_files/HOTOO_4.pdf",
+        "role": "adventure",
+        "description": "Horror on the Orient Express - Book 4: Constantinople and Consequences"
+    },
+    {
+        "path": "pdf_files/HOTOO_5.pdf",
+        "role": "adventure",
+        "description": "Horror on the Orient Express - Book 5: Strangers on the Train"
+    },
 ]
-OLLAMA_MODEL = "mistral:7b-instruct"  # Change to whatever you have running
+OLLAMA_MODEL = "fluffy/magnum-v4-9b:q5_K_M"  
+# OLLAMA_MODEL = "mistral:7b-instruct"  
 PERSIST_DIRECTORY = "./chroma_db"
 
 def setup_rag_system(skip_processing=False):
@@ -61,6 +80,22 @@ def setup_rag_system(skip_processing=False):
         )
         print(f"   ✅ Loaded vector database from {PERSIST_DIRECTORY}\n")
     else:
+        # Check for duplicate paths in PDF_SOURCES
+        seen_paths = set()
+        duplicates = []
+        for source in PDF_SOURCES:
+            path = source["path"]
+            if path in seen_paths:
+                duplicates.append(path)
+            seen_paths.add(path)
+
+        if duplicates:
+            print(f"❌ Error: Duplicate PDF paths detected in PDF_SOURCES:")
+            for dup in duplicates:
+                print(f"   - {dup}")
+            print(f"   Please remove duplicates from the configuration")
+            return None, None
+
         # Clear existing database if it exists
         if os.path.exists(PERSIST_DIRECTORY):
             print(f"🗑️  Clearing existing vector database at {PERSIST_DIRECTORY}...")
@@ -127,7 +162,7 @@ def setup_rag_system(skip_processing=False):
     llm = OllamaLLM(
         model=OLLAMA_MODEL,
         base_url="http://localhost:11434",
-        temperature=0.7  # Some creativity, but not too much
+        temperature=1.0
     )
     print(f"   Connected to {OLLAMA_MODEL}")
 
@@ -157,7 +192,7 @@ Answer:""")
 
     # Create retriever
     retriever = vectorstore.as_retriever(
-        search_kwargs={"k": 5}  # Retrieve top 5 most relevant chunks
+        search_kwargs={"k": 10}  # Retrieve top 5 most relevant chunks
     )
 
     # Helper function to format documents with metadata
@@ -233,27 +268,20 @@ def main():
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Call of Cthulhu RAG Assistant')
-    parser.add_argument('--skip-processing', action='store_true',
-                        help='Skip PDF processing and load existing vector database')
-    parser.add_argument('--skip-examples', action='store_true',
-                        help='Skip example questions and go straight to interactive mode')
-    parser.add_argument('--interactive-only', action='store_true',
-                        help='Skip both processing and examples (same as --skip-processing --skip-examples)')
+    parser.add_argument('--reprocess', action='store_true',
+                        help='Reprocess PDFs and rebuild vector database (otherwise loads existing database)')
+    parser.add_argument('--run-examples', action='store_true',
+                        help='Run example questions before interactive mode')
     args = parser.parse_args()
 
-    # Handle --interactive-only shortcut
-    if args.interactive_only:
-        args.skip_processing = True
-        args.skip_examples = True
-
-    # Check if we're skipping processing but database doesn't exist
-    if args.skip_processing and not os.path.exists(PERSIST_DIRECTORY):
+    # Check if we're loading existing database but it doesn't exist
+    if not args.reprocess and not os.path.exists(PERSIST_DIRECTORY):
         print(f"❌ Error: Vector database not found at {PERSIST_DIRECTORY}")
-        print(f"   You must run the script without --skip-processing first to create the database")
+        print(f"   Run with --reprocess to create the database from PDFs")
         return
 
-    # Check if PDFs exist (only if we're not skipping processing)
-    if not args.skip_processing:
+    # Check if PDFs exist (only if we're reprocessing)
+    if args.reprocess:
         missing_pdfs = [source for source in PDF_SOURCES if not os.path.exists(source["path"])]
         if missing_pdfs:
             print(f"❌ Error: The following PDF(s) not found:")
@@ -275,10 +303,14 @@ def main():
         return
 
     # Setup the RAG system
-    rag_chain, retriever = setup_rag_system(skip_processing=args.skip_processing)
+    rag_chain, retriever = setup_rag_system(skip_processing=not args.reprocess)
 
-    # Run some example queries to see it work (unless skipped)
-    if not args.skip_examples:
+    # Check if setup was successful
+    if rag_chain is None or retriever is None:
+        return
+
+    # Run some example queries if requested
+    if args.run_examples:
         print("\n" + "="*70)
         print("🧪 Testing with example questions...")
         print("="*70)
